@@ -316,24 +316,29 @@ def file_to_content_blocks(uploaded_file):
 
 
 def extract_bill(client, model, uploaded_file):
-    """Sends one bill to Claude and returns the extracted fields as a dictionary."""
-    response = client.messages.create(
-        model=model,
-        max_tokens=4000,
-        tools=[build_tool_schema()],
-        tool_choice={"type": "tool", "name": "record_bill"},
-        messages=[
-            {
-                "role": "user",
-                "content": file_to_content_blocks(uploaded_file)
-                + [{"type": "text", "text": EXTRACTION_PROMPT}],
-            }
-        ],
-    )
+    """Sends one bill to Claude and returns the extracted fields as a dictionary.
+
+    Newer Claude models do not allow *forcing* a tool, so Claude is asked to use the
+    record_bill form; if it answers in plain JSON instead, that answer is read too."""
+    content = file_to_content_blocks(uploaded_file) + [{
+        "type": "text",
+        "text": EXTRACTION_PROMPT + "\nYou must call the record_bill tool exactly once with your answer.",
+    }]
+    request = dict(model=model, max_tokens=8000, tools=[build_tool_schema()],
+                   messages=[{"role": "user", "content": content}])
+    try:
+        response = client.messages.create(tool_choice={"type": "tool", "name": "record_bill"}, **request)
+    except anthropic.BadRequestError as error:
+        if "tool_choice" not in str(error):
+            raise
+        response = client.messages.create(tool_choice={"type": "auto"}, **request)
     for block in response.content:
-        if block.type == "tool_use":
-            return dict(block.input)
-    raise ValueError("Claude did not return structured data for this bill.")
+        if getattr(block, "type", None) == "tool_use":
+            return _clean_values(dict(block.input))
+    text = "".join(getattr(block, "text", "") for block in response.content)
+    if "{" in text:
+        return _clean_values(_parse_json(text))
+    raise ValueError("Claude did not return structured data for this bill. Try again.")
 
 
 # ---------------------------------------------------------------------------

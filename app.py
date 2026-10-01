@@ -722,7 +722,9 @@ def main():
     # Sidebar settings. On the website (ONLINE_MODE = "true" in secrets) the laptop-only
     # Ollama option is hidden and Automatic is the default; on the laptop, Ollama is the default.
     online = (secret("ONLINE_MODE") or "").lower() in ("true", "1", "yes")
-    if online:
+    if online and secret("ANTHROPIC_API_KEY"):
+        choices = [CLAUDE, AUTO, GEMINI, GROQ]  # Claude key added on the website: use it by default
+    elif online:
         choices = [AUTO, GEMINI, GROQ, CLAUDE]
     else:
         choices = [OLLAMA, AUTO, GEMINI, GROQ, CLAUDE]
